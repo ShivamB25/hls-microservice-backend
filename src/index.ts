@@ -1,6 +1,7 @@
 import express from 'express';
 import connectDB from './db';
 import videoRoutes from './routes/videoRoutes';
+import cors from 'cors';
 
 const app = express();
 const PORT = 3000;
@@ -10,6 +11,9 @@ connectDB();
 
 // Middleware to parse JSON bodies
 app.use(express.json());
+
+// Middleware to enable CORS
+app.use(cors());
 
 // Use video routes
 app.use('/api/videos', videoRoutes);
