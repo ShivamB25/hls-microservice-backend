@@ -2,12 +2,24 @@ import express from 'express';
 import connectDB from './db';
 import videoRoutes from './routes/videoRoutes';
 import cors from 'cors';
+import { connectRabbitMQ } from './rabbitMQ';
 
 const app = express();
 const PORT = 3000;
 
 // Connect to MongoDB
 connectDB();
+
+// Connect to RabbitMQ
+const rabbitMQUrl = process.env.RABBITMQ_URL || 'amqp://localhost';
+const queueName = process.env.RABBITMQ_QUEUE || 'video-upload-queue';
+
+connectRabbitMQ(rabbitMQUrl, queueName).then(() => {
+  console.log('RabbitMQ connection established');
+}).catch((error) => {
+  console.error('Failed to connect to RabbitMQ:', error.message, error.stack);
+  process.exit(1); // Exit process with failure
+});
 
 // Middleware to parse JSON bodies
 app.use(express.json());

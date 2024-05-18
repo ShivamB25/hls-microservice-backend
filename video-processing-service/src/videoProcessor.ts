@@ -1,8 +1,8 @@
 import Video from '../../models/videoModel';
 import ffmpeg from 'fluent-ffmpeg';
-import { getChannel } from './rabbitMQ';
+import { getChannel } from '../../src/utils/rabbitMQ';
 
-const processVideos = async () => {
+const processVideoQueue = async () => {
   const channel = getChannel();
   if (!channel) {
     console.error('RabbitMQ channel is not available');
@@ -32,6 +32,12 @@ const processVideos = async () => {
               '-f hls'
             ])
             .output(`hls/${video._id}.m3u8`)
+            .on('start', () => {
+              console.log(`Started processing video ${video._id}`);
+            })
+            .on('progress', (progress) => {
+              console.log(`Processing video ${video._id}: ${progress.percent}% done`);
+            })
             .on('end', async () => {
               video.status = 'processed';
               await video.save();
@@ -59,4 +65,4 @@ const processVideos = async () => {
   });
 };
 
-export default processVideos;
+export default processVideoQueue;

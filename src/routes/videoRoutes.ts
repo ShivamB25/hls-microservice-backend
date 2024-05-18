@@ -1,15 +1,15 @@
 import express, { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import Video from '../../models/videoModel';
-import path from 'path';
+import { publishToQueue } from '../utils/rabbitMQ';
 
 // Setup multer for file uploads
 const upload = multer({
   dest: 'uploads/', // Destination folder for uploaded files
   limits: { fileSize: 100 * 1024 * 1024 }, // Limit file size to 100MB
   fileFilter: (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (ext !== '.mp4' && ext !== '.mkv' && ext !== '.avi') {
+    const ext = file.originalname.split('.').pop()?.toLowerCase();
+    if (ext !== 'mp4' && ext !== 'mkv' && ext !== 'avi') {
       return cb(new Error('Only videos are allowed'));
     }
     cb(null, true);
@@ -37,6 +37,9 @@ router.post('/upload', upload.single('video'), async (req: Request, res: Respons
 
     await video.save();
 
+    // Publish a message to RabbitMQ
+    await publishToQueue('video-upload-queue', video._id.toString());
+
     res.status(201).json(video);
     console.log('Video uploaded successfully:', video);
   } catch (error: unknown) {
@@ -45,6 +48,32 @@ router.post('/upload', upload.single('video'), async (req: Request, res: Respons
       res.status(500).send('Internal Server Error');
     } else {
       console.error('Unexpected error uploading video:', error);
+      res.status(500).send('Internal Server Error');
+    }
+  }
+});
+
+// GET /videos route for fetching processed videos with pagination
+router.get('/videos', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+
+    const options = {
+      page: parseInt(page as string, 10),
+      limit: parseInt(limit as string, 10),
+      sort: { createdAt: -1 }
+    };
+
+    const videos = await Video.paginate({ status: 'processed' }, options);
+
+    res.status(200).json(videos);
+    console.log('Fetched processed videos:', videos);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error('Error fetching processed videos:', error.message, error.stack);
+      res.status(500).send('Internal Server Error');
+    } else {
+      console.error('Unexpected error fetching processed videos:', error);
       res.status(500).send('Internal Server Error');
     }
   }
