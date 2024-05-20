@@ -47,8 +47,8 @@ This project is designed to transform videos into HLS format using a microservic
 
 1. **Clone the repository**
    ```sh
-   git clone https://github.com/your-username/microservice-example_.git
-   cd microservice-example_
+   git clone https://github.com/ShivamB25/hls-microservice-backend.git
+   cd hls-microservice-backend
    ```
 2. **Install dependencies**
    ```sh
@@ -73,7 +73,7 @@ This project is designed to transform videos into HLS format using a microservic
 5. **Docker and Kubernetes (optional)**
    - Build Docker images:
      ```sh
-     docker build -t microservice-example_ .
+     docker build -t hls-microservice-backend .
      cd video-processing-service
      docker build -t video-processing-service .
      ```
