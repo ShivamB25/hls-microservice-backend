@@ -1,0 +1,39 @@
+replicaCount: 1
+
+image:
+  repository: hls-microservice-backend
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+videoProcessingService:
+  image:
+    repository: video-processing-service
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3001
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: false
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths: []
+  tls: []
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: []
+
+mongodb:
+  uri: "mongodbUrl"
+
+rabbitmq:
+  url: "amqp://localhost"
+  queue: "video-upload-queue"

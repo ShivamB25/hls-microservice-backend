@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import Video from '../../models/videoModel';
 import { publishToQueue } from '../utils/rabbitMQ';
+import logger from '../utils/logger';
 
 // Setup multer for file uploads
 const upload = multer({
@@ -41,20 +42,20 @@ router.post('/upload', upload.single('video'), async (req: Request, res: Respons
     await publishToQueue('video-upload-queue', video._id.toString());
 
     res.status(201).json(video);
-    console.log('Video uploaded successfully:', video);
+    logger.info('Video uploaded successfully:', video);
   } catch (error: unknown) {
     if (error instanceof Error) {
-      console.error('Error uploading video:', error.message, error.stack);
+      logger.error('Error uploading video:', error.message, error.stack);
       res.status(500).send('Internal Server Error');
     } else {
-      console.error('Unexpected error uploading video:', error);
+      logger.error('Unexpected error uploading video:', error);
       res.status(500).send('Internal Server Error');
     }
   }
 });
 
-// GET /videos route for fetching processed videos with pagination
-router.get('/videos', async (req: Request, res: Response, next: NextFunction) => {
+// GET / route for fetching processed videos with pagination
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page = 1, limit = 10 } = req.query;
 
@@ -67,13 +68,13 @@ router.get('/videos', async (req: Request, res: Response, next: NextFunction) =>
     const videos = await Video.paginate({ status: 'processed' }, options);
 
     res.status(200).json(videos);
-    console.log('Fetched processed videos:', videos);
+    logger.info(`Fetched processed videos: ${videos.docs.length} videos found`);
   } catch (error: unknown) {
     if (error instanceof Error) {
-      console.error('Error fetching processed videos:', error.message, error.stack);
+      logger.error('Error fetching processed videos:', error.message, error.stack);
       res.status(500).send('Internal Server Error');
     } else {
-      console.error('Unexpected error fetching processed videos:', error);
+      logger.error('Unexpected error fetching processed videos:', error);
       res.status(500).send('Internal Server Error');
     }
   }

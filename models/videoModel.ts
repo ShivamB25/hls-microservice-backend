@@ -1,8 +1,9 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, Schema, PaginateModel } from 'mongoose';
 import mongoosePaginate from 'mongoose-paginate-v2';
 
 // Define the interface for the Video document
 interface IVideo extends Document {
+  _id: mongoose.Types.ObjectId;
   title: string;
   description: string;
   filePath: string;
@@ -23,6 +24,6 @@ const videoSchema: Schema = new Schema({
 videoSchema.plugin(mongoosePaginate);
 
 // Create and export the Video model
-const Video = mongoose.model<IVideo>('Video', videoSchema);
+const Video = mongoose.model<IVideo, PaginateModel<IVideo>>('Video', videoSchema);
 
 export default Video;

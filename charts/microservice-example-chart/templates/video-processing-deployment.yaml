@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: video-processing-service
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: video-processing-service
+  template:
+    metadata:
+      labels:
+        app: video-processing-service
+    spec:
+      containers:
+        - name: video-processing-service
+          image: "{{ .Values.videoProcessingService.image.repository }}:{{ .Values.videoProcessingService.image.tag }}"
+          imagePullPolicy: {{ .Values.videoProcessingService.image.pullPolicy }}
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: hls-microservice-backend-config
+                  key: MONGO_URI
+            - name: RABBITMQ_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: hls-microservice-backend-config
+                  key: RABBITMQ_URL
+            - name: RABBITMQ_QUEUE
+              valueFrom:
+                configMapKeyRef:
+                  name: hls-microservice-backend-config
+                  key: RABBITMQ_QUEUE
+          ports:
+            - containerPort: 3001

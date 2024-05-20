@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hls-microservice-backend
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: hls-microservice-backend
+  template:
+    metadata:
+      labels:
+        app: hls-microservice-backend
+    spec:
+      containers:
+        - name: hls-microservice-backend
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: MONGO_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: hls-microservice-backend-config
+                  key: MONGO_URI
+            - name: RABBITMQ_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: hls-microservice-backend-config
+                  key: RABBITMQ_URL
+            - name: RABBITMQ_QUEUE
+              valueFrom:
+                configMapKeyRef:
+                  name: hls-microservice-backend-config
+                  key: RABBITMQ_QUEUE
+          ports:
+            - containerPort: 3000

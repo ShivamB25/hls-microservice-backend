@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: video-processing-service
+spec:
+  type: {{ .Values.videoProcessingService.service.type }}
+  ports:
+    - port: {{ .Values.videoProcessingService.service.port }}
+      targetPort: 3001
+  selector:
+    app: video-processing-service

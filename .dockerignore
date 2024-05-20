@@ -1,0 +1,6 @@
+# Ignore node_modules and other unnecessary files
+node_modules
+npm-debug.log
+.git
+.vscode
+video-processing-service

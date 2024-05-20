@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  main-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - MONGO_URI=${MONGO_URI} # INPUT_REQUIRED {Replace with your MongoDB URI}
+      - RABBITMQ_URL=${RABBITMQ_URL} # INPUT_REQUIRED {Replace with your RabbitMQ URL}
+      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE} # INPUT_REQUIRED {Replace with your RabbitMQ queue name}
+    depends_on:
+      - rabbitmq
+      - mongodb
+
+  video-processing-service:
+    build:
+      context: ./video-processing-service
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGO_URI=${MONGO_URI} # INPUT_REQUIRED {Replace with your MongoDB URI}
+      - RABBITMQ_URL=${RABBITMQ_URL} # INPUT_REQUIRED {Replace with your RabbitMQ URL}
+      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE} # INPUT_REQUIRED {Replace with your RabbitMQ queue name}
+    depends_on:
+      - rabbitmq
+      - mongodb
+
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  mongodb:
+    image: "mongo:4.2"
+    ports:
+      - "27017:27017"

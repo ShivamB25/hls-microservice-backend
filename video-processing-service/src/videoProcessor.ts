@@ -1,11 +1,12 @@
 import Video from '../../models/videoModel';
 import ffmpeg from 'fluent-ffmpeg';
 import { getChannel } from '../../src/utils/rabbitMQ';
+import logger from '../../src/utils/logger';
 
 const processVideoQueue = async () => {
   const channel = getChannel();
   if (!channel) {
-    console.error('RabbitMQ channel is not available');
+    logger.error('RabbitMQ channel is not available');
     return;
   }
 
@@ -19,7 +20,7 @@ const processVideoQueue = async () => {
           video.status = 'processing';
           await video.save();
 
-          console.log(`Processing video ${video._id}`);
+          logger.info(`Processing video ${video._id}`);
 
           // Convert video to HLS format
           ffmpeg(video.filePath)
@@ -33,31 +34,40 @@ const processVideoQueue = async () => {
             ])
             .output(`hls/${video._id}.m3u8`)
             .on('start', () => {
-              console.log(`Started processing video ${video._id}`);
+              logger.info(`Started processing video ${video._id}`);
             })
             .on('progress', (progress) => {
-              console.log(`Processing video ${video._id}: ${progress.percent}% done`);
+              logger.info(`Processing video ${video._id}: ${progress.percent}% done`);
             })
             .on('end', async () => {
-              video.status = 'processed';
-              await video.save();
-              console.log(`Video ${video._id} processed successfully`);
-              channel.ack(msg);
+              try {
+                video.status = 'processed';
+                await video.save();
+                logger.info(`Video ${video._id} processed successfully`);
+                channel.ack(msg);
+              } catch (error) {
+                if (error instanceof Error) {
+                  logger.error(`Error updating video status to 'processed' for video ${video._id}:`, error.message, error.stack);
+                } else {
+                  logger.error(`Unknown error updating video status to 'processed' for video ${video._id}:`, error);
+                }
+                channel.nack(msg);
+              }
             })
             .on('error', (err) => {
-              console.error(`Error processing video ${video._id}:`, err.message, err.stack);
+              logger.error(`Error processing video ${video._id}:`, err.message, err.stack);
               channel.nack(msg);
             })
             .run();
         } else {
-          console.error(`Video not found or not in uploaded status: ${videoId}`);
+          logger.error(`Video not found or not in uploaded status: ${videoId}`);
           channel.nack(msg);
         }
       } catch (error) {
         if (error instanceof Error) {
-          console.error('Error processing video:', error.message, error.stack);
+          logger.error('Error processing video:', error.message, error.stack);
         } else {
-          console.error('Unknown error processing video:', error);
+          logger.error('Unknown error processing video:', error);
         }
         channel.nack(msg);
       }
