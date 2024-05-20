@@ -20,10 +20,8 @@ This project is designed to transform videos into HLS format using a microservic
   - **videoProcessor.ts**: Contains the logic for converting videos to HLS format.
 - **types/**: TypeScript type definitions.
 - **.env**: Environment variables.
-- **package.json**: Node.js dependencies and scripts.
-- **tsconfig.json**: TypeScript configuration.
 - **Dockerfile**: Docker configuration for containerization.
-- **helm/**: Helm chart for Kubernetes deployment.
+- **charts/hls-microservice-backend-chart/**: Helm chart for Kubernetes deployment.
 
 ## Features
 
