@@ -1,4 +1,3 @@
-# microservice-example_
 
 A highly scalable and efficient system for transforming video files into HLS format using a microservices architecture.
 
