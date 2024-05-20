@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `microservice-example_` project is designed to transform video files into HLS (HTTP Live Streaming) format using a microservices architecture. This document provides an overview of the application's architecture, the roles of various components, and detailed descriptions of key files and directories.
+The `hls-microservice-backend` project is designed to transform video files into HLS (HTTP Live Streaming) format using a microservices architecture. This document provides an overview of the application's architecture, the roles of various components, and detailed descriptions of key files and directories.
 
 ## Architecture Components
 

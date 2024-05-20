@@ -1,6 +1,6 @@
 ## Purpose of RabbitMQ
 
-RabbitMQ is used in the `microservice-example_` project to manage message queuing between the main application and the video processing service. It enables asynchronous processing of video files, allowing the system to scale and handle multiple video processing tasks simultaneously.
+RabbitMQ is used in the `hls-microservice-backend` project to manage message queuing between the main application and the video processing service. It enables asynchronous processing of video files, allowing the system to scale and handle multiple video processing tasks simultaneously.
 
 ## How RabbitMQ is Used
 

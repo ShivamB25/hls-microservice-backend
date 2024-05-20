@@ -1,5 +1,3 @@
-# Kubernetes Deployment Guide for microservice-example_
-
 This guide provides an in-depth explanation of how Kubernetes is used in this project, including how to deploy the application using Kubernetes and Helm.
 
 ## Table of Contents
