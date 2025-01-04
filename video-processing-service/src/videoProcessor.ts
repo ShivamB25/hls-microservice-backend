@@ -1,5 +1,5 @@
 import Video from '../../models/videoModel';
-import ffmpeg from 'fluent-ffmpeg';
+import ffmpeg, { FfmpegCommand } from 'fluent-ffmpeg';
 import { getChannel } from '../../src/utils/rabbitMQ';
 import logger from '../../src/utils/logger';
 
@@ -14,7 +14,20 @@ const processVideoQueue = async () => {
     if (msg) {
       const videoId = msg.content.toString();
       try {
-        const video = await Video.findById(videoId);
+        let retries = 3;
+        let video = null;
+        
+        while (retries > 0 && !video) {
+          try {
+            video = await Video.findById(videoId);
+            break;
+          } catch (error) {
+            retries--;
+            if (retries === 0) throw error;
+            logger.warn(`Retrying MongoDB operation, attempts remaining: ${retries}`);
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+          }
+        }
 
         if (video && video.status === 'uploaded') {
           video.status = 'processing';
@@ -23,7 +36,9 @@ const processVideoQueue = async () => {
           logger.info(`Processing video ${video._id}`);
 
           // Convert video to HLS format
-          ffmpeg(video.filePath)
+          const command = ffmpeg(video.filePath);
+          
+          (command as any)
             .outputOptions([
               '-profile:v baseline', 
               '-level 3.0', 
@@ -36,7 +51,7 @@ const processVideoQueue = async () => {
             .on('start', () => {
               logger.info(`Started processing video ${video._id}`);
             })
-            .on('progress', (progress) => {
+            .on('progress', (progress: { percent: number }) => {
               logger.info(`Processing video ${video._id}: ${progress.percent}% done`);
             })
             .on('end', async () => {
@@ -54,7 +69,7 @@ const processVideoQueue = async () => {
                 channel.nack(msg);
               }
             })
-            .on('error', (err) => {
+            .on('error', (err: Error) => {
               logger.error(`Error processing video ${video._id}:`, err.message, err.stack);
               channel.nack(msg);
             })
