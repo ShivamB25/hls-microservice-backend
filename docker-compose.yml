@@ -7,10 +7,18 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    env_file: .env
     environment:
-      - MONGO_URI=${MONGO_URI} # INPUT_REQUIRED {Replace with your MongoDB URI}
-      - RABBITMQ_URL=${RABBITMQ_URL} # INPUT_REQUIRED {Replace with your RabbitMQ URL}
-      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE} # INPUT_REQUIRED {Replace with your RabbitMQ queue name}
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGO_URI=${MONGO_URI}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE}
+    healthcheck:
+      test: ["CMD", "bun", "run", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     depends_on:
       - rabbitmq
       - mongodb
@@ -21,10 +29,18 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3001:3001"
+    env_file: .env
     environment:
-      - MONGO_URI=${MONGO_URI} # INPUT_REQUIRED {Replace with your MongoDB URI}
-      - RABBITMQ_URL=${RABBITMQ_URL} # INPUT_REQUIRED {Replace with your RabbitMQ URL}
-      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE} # INPUT_REQUIRED {Replace with your RabbitMQ queue name}
+      - NODE_ENV=production
+      - PORT=3001
+      - MONGO_URI=${MONGO_URI}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE}
+    healthcheck:
+      test: ["CMD", "bun", "run", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     depends_on:
       - rabbitmq
       - mongodb
@@ -34,8 +50,18 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   mongodb:
     image: "mongo:4.2"
     ports:
       - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

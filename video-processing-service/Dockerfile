@@ -1,26 +1,35 @@
-# Use the official Node.js 16 image as the base image
-FROM node:21
+# use the official Bun image
+FROM oven/bun:1 AS base
+WORKDIR /usr/src/app
 
-# Set the working directory inside the container
-WORKDIR /app
+# install dependencies into temp directory
+FROM base AS install
+RUN mkdir -p /temp/dev
+COPY package.json bun.lockb /temp/dev/
+RUN cd /temp/dev && bun install --frozen-lockfile
 
-# Copy package.json and tsconfig.json
-COPY package.json tsconfig.json ./
+# install with --production (exclude devDependencies)
+RUN mkdir -p /temp/prod
+COPY package.json bun.lockb /temp/prod/
+RUN cd /temp/prod && bun install --frozen-lockfile --production
 
-# Install dependencies
-RUN npm install
+# copy node_modules from temp directory
+# then copy all (non-ignored) project files into the image
+FROM base AS prerelease
+COPY --from=install /temp/dev/node_modules node_modules
+COPY . .
 
-# Copy the rest of the application code
-COPY src ./src
-
-# Build the TypeScript code
-RUN npm run build
-
-# Set environment variables for production
+# build the application
 ENV NODE_ENV=production
+RUN bun run build
 
-# Expose port 3000 for the service (if needed)
-EXPOSE 3000
+# copy production dependencies and source code into final image
+FROM base AS release
+COPY --from=install /temp/prod/node_modules node_modules
+COPY --from=prerelease /usr/src/app/dist ./dist
+COPY --from=prerelease /usr/src/app/package.json ./package.json
 
-# Start the application
-CMD ["npm", "start"]
+# run the app
+USER bun
+EXPOSE 3001/tcp
+CMD ["bun", "run", "start"]

@@ -1,41 +1,35 @@
-# Use the official Node.js image as a base image
-FROM node:21
+# use the official Bun image
+FROM oven/bun:1 AS base
+WORKDIR /usr/src/app
 
-# Set the working directory for the main application
-WORKDIR /app
+# install dependencies into temp directory
+FROM base AS install
+RUN mkdir -p /temp/dev
+COPY package.json bun.lockb /temp/dev/
+RUN cd /temp/dev && bun install --frozen-lockfile
 
-# Copy package.json to the working directory of the main application
-COPY package.json ./
+# install with --production (exclude devDependencies)
+RUN mkdir -p /temp/prod
+COPY package.json bun.lockb /temp/prod/
+RUN cd /temp/prod && bun install --frozen-lockfile --production
 
-# Install dependencies for the main application
-RUN npm install
-
-# Copy the rest of the main application code to the working directory
+# copy node_modules from temp directory
+# then copy all (non-ignored) project files into the image
+FROM base AS prerelease
+COPY --from=install /temp/dev/node_modules node_modules
 COPY . .
 
-# Build the TypeScript files for the main application
-RUN npm run build
+# build the application
+ENV NODE_ENV=production
+RUN bun run build
 
-# Set the working directory for the video-processing-service
-WORKDIR /app/video-processing-service
+# copy production dependencies and source code into final image
+FROM base AS release
+COPY --from=install /temp/prod/node_modules node_modules
+COPY --from=prerelease /usr/src/app/dist ./dist
+COPY --from=prerelease /usr/src/app/package.json ./package.json
 
-# Copy package.json to the working directory of video-processing-service
-COPY video-processing-service/package.json ./
-
-# Install dependencies for video-processing-service
-RUN npm install
-
-# Copy the rest of the video-processing-service code to the working directory
-COPY video-processing-service ./
-
-# Build the TypeScript files for video-processing-service
-RUN npm run build
-
-# Expose the port the main application runs on
-EXPOSE 3000
-
-# Expose the port the video-processing-service runs on
-EXPOSE 3001
-
-# Start both the main application and the video-processing-service using a process manager
-CMD ["npx", "pm2-runtime", "start", "ecosystem.config.js"]
+# run the app
+USER bun
+EXPOSE 3000/tcp
+CMD ["bun", "run", "start"]
