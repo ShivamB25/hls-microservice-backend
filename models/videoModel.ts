@@ -20,6 +20,10 @@ const videoSchema: Schema = new Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+// Add indexes for frequently queried fields
+videoSchema.index({ status: 1 });
+videoSchema.index({ createdAt: -1 });
+
 // Add pagination plugin to the schema
 videoSchema.plugin(mongoosePaginate);
 
