@@ -3,6 +3,7 @@ import { connectMongo, disconnectMongo } from './lib/mongo.ts'
 import { rabbit } from './lib/rabbit.ts'
 import { buildApp } from './app.ts'
 import { env } from './config/env.ts'
+import type { AppConfig } from './config/app-config.ts'
 
 const log = createLogger({ module: 'server', service: env.SERVICE_NAME })
 
@@ -30,7 +31,15 @@ async function bootstrap() {
   await connectMongo()
   await rabbit.start()
 
-  const app = buildApp()
+  const appConfig: AppConfig = {
+    NODE_ENV: env.NODE_ENV,
+    SERVICE_NAME: env.SERVICE_NAME,
+    CORS_ORIGINS: env.CORS_ORIGINS,
+    MAX_UPLOAD_BYTES: env.MAX_UPLOAD_BYTES,
+    UPLOAD_DIR: env.UPLOAD_DIR,
+  }
+
+  const app = buildApp(appConfig)
 
   server = Bun.serve({
     port: env.PORT,

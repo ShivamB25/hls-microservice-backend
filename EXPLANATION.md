@@ -34,3 +34,9 @@ This project converts raw video files into HLS (`.m3u8` and `.ts` segments) usin
 1. `POST /api/upload` -> Hono validates -> `Bun.write()` -> Mongo `uploaded` -> RabbitMQ publish.
 2. Worker picks up job -> Mongo `processing` -> FFmpeg runs -> HLS files written -> Mongo `processed` -> Ack message.
 3. If FFmpeg fails -> Mongo `failed` -> Nack message -> RabbitMQ routes to DLQ.
+
+## Runtime Boundaries (Important)
+
+- This codebase is optimized for Bun + containers.
+- It is not a direct Cloudflare Workers deploy because it depends on local filesystem writes, TCP database/broker clients, and local ffmpeg execution.
+- Hono remains a good framework choice for future multi-runtime split deployments. This repo now includes `src/edge.ts` as a portable `fetch()` entrypoint for API-only mode, but the upload/storage/queue/transcode path still belongs in containerized runtimes.

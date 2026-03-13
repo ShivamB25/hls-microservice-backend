@@ -6,20 +6,26 @@ import { requestLoggerMiddleware } from './middleware/request-logger.ts'
 import { globalErrorHandler } from './middleware/error-handler.ts'
 import health from './routes/health.ts'
 import videos from './routes/videos.ts'
-import upload from './routes/upload.ts'
-import { env } from './config/env.ts'
+import { createUploadRoutes } from './routes/upload.ts'
+import type { AppConfig } from './config/app-config.ts'
 
 export type AppVariables = {
   reqId: string
   logger: import('pino').Logger
+  config: AppConfig
 }
 
 export type AppType = {
   Variables: AppVariables
 }
 
-export function buildApp() {
+export function buildApp(config: AppConfig) {
   const app = new Hono<AppType>()
+
+  app.use('*', async (c, next) => {
+    c.set('config', config)
+    await next()
+  })
 
   app.use('*', requestIdMiddleware)
   app.use('*', requestLoggerMiddleware)
@@ -27,19 +33,22 @@ export function buildApp() {
   app.use(
     '/api/*',
     cors({
-      origin: env.CORS_ORIGINS === '*' ? '*' : env.CORS_ORIGINS.split(','),
+      origin:
+        config.CORS_ORIGINS === '*' ? '*' : config.CORS_ORIGINS.split(','),
       allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
       allowHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
-      credentials: env.CORS_ORIGINS !== '*',
+      credentials: config.CORS_ORIGINS !== '*',
       maxAge: 600,
     }),
   )
 
   app.route('/health', health)
   app.route('/api/videos', videos)
-  app.route('/api/upload', upload)
+  app.route('/api/upload', createUploadRoutes(config))
 
-  app.get('/', (c) => c.json({ service: 'hls-api-gateway', version: '2.0.0' }))
+  app.get('/', (c) =>
+    c.json({ service: config.SERVICE_NAME, version: '2.0.0', runtime: 'hono' }),
+  )
 
   app.notFound((c) =>
     c.json({ code: 'NOT_FOUND', message: `Route ${c.req.path} not found` }, 404),

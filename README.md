@@ -88,6 +88,12 @@ hls-microservice-backend/
    docker compose up -d
    ```
 
+6. **Optional: build the edge-friendly API entrypoint**
+   ```sh
+   bun run build:edge
+   ```
+   This builds `src/edge.ts`, which keeps the Hono API router portable for platforms that expect a `fetch()` handler.
+
 ## Documentation
 
 For detailed architecture and deployment information, see:
@@ -95,6 +101,36 @@ For detailed architecture and deployment information, see:
 1. [Code Architecture](./docs/code-architecture.md) - Deep dive into the Bun/Hono monorepo, data flow, and error handling.
 2. [RabbitMQ Usage](./docs/rabbitmq.md) - Details on Quorum queues, the Dead Letter Exchange, and the custom RabbitManager.
 3. [Kubernetes Deployment Guide](./docs/kubernetes.md) - How to deploy the Helm chart with KEDA scaling and ReadWriteMany PVCs.
+
+## Deployment Target Compatibility
+
+Current code is **Bun container-native**. Hono is multi-runtime, but this repository uses Bun-specific and server/container-only primitives.
+
+| Target | Status | Notes |
+|---|---|---|
+| Docker / Kubernetes | ✅ Supported | Primary deployment path for this repo. |
+| VM / Bare metal (Bun) | ✅ Supported | Run with `bun run start` and external Mongo/RabbitMQ/FFmpeg installed. |
+| Cloudflare Workers | ⚠️ Partial | `src/edge.ts` provides a portable Hono fetch entrypoint, but upload persistence, MongoDB, RabbitMQ, and ffmpeg still require container mode or service replacement. |
+| Vercel Edge / Netlify Edge | ❌ Not direct | Same constraints as Workers for filesystem/TCP/processes. |
+
+### Why Cloudflare is not direct right now
+
+- API uses `Bun.serve()` and upload path uses `Bun.write()` to local disk.
+- Worker uses `fluent-ffmpeg` and `Bun.spawn` to execute ffmpeg.
+- Data plane uses MongoDB and RabbitMQ over TCP (`mongoose`, `amqplib`).
+
+### What the extra portability mode gives you
+
+- A real Hono `fetch()` entrypoint in `src/edge.ts`.
+- Runtime-aware upload behavior: on non-Bun runtimes, binary ingestion returns `501` instead of pretending to work.
+- Shared router/middleware logic that stays reusable across Bun server mode and edge-style fetch mode.
+
+### Path to Cloudflare-friendly architecture
+
+1. Keep the worker in containers/Kubernetes for ffmpeg.
+2. Optionally move API ingress to Workers with Hono adapter.
+3. Replace local disk with object storage (e.g., R2/S3).
+4. Replace broker/DB access with edge-compatible services or HTTP APIs.
 
 ## License
 This project is licensed under the MIT License. See the LICENSE file for more details.

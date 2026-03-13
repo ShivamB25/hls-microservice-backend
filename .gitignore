@@ -134,6 +134,7 @@ dist
 uploads/
 hls/
 dist/
+dist-edge/
 video-processing-service/dist/
 *.lockb
 bun.lock
