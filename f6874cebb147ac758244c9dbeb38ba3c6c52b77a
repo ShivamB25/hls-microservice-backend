@@ -1,0 +1,23 @@
+EXPLANATION.md
+  f4b911ece818e85e 1,3,5,7-10,12-15,17-21,23-27,29-30,34-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "f6874cebb147ac758244c9dbeb38ba3c6c52b77a",
+  "prompts": {
+    "f4b911ece818e85e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3182ffaf8ffeKq81etu9i5hemb-74383df6-7072-4320-89b3-04a7e2d9b6bf",
+        "model": "unknown"
+      },
+      "human_author": "shivam bansal <shivamban30@gmail.com>",
+      "messages": [],
+      "total_additions": 26,
+      "total_deletions": 50,
+      "accepted_lines": 26,
+      "overriden_lines": 0
+    }
+  }
+}
