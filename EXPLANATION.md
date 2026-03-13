@@ -1,60 +1,36 @@
-## Introduction
+# System Explanation
 
-The `hls-microservice-backend` application is designed to transform video files into HLS (HTTP Live Streaming) format using a microservices architecture. This document provides an overview of the application's components, technologies used, and how they interact.
+This project converts raw video files into HLS (`.m3u8` and `.ts` segments) using an asynchronous worker pattern. It was rewritten in 2025 to run natively on Bun.
 
-## Architecture Overview
+## Components
 
-The application follows a microservices architecture, which allows for scalability and efficient management of different components. Below is a basic diagram illustrating the architecture and data flow:
+### 1. API Gateway (Hono)
+- **Role:** Ingest uploads and serve metadata.
+- **Stack:** Hono, Bun.serve, Zod.
+- **Behavior:** Parses multipart `video` streams using `c.req.parseBody()`, validates payloads with Zod, and dumps the file directly to a shared persistent volume via `Bun.write()`. Saves the record to MongoDB (`status: 'uploaded'`) and drops a `VideoJob` message onto RabbitMQ.
 
-<!-- ![Architecture Diagram](./docs/architecture-diagram.png) -->
+### 2. Video Processor (Worker)
+- **Role:** Transcode videos.
+- **Stack:** Bun, fluent-ffmpeg, Mongoose.
+- **Behavior:** Consumes from RabbitMQ. It uses `findOneAndUpdate` to lock the DB record to prevent duplicate processing if a message is redelivered. Calls `fluent-ffmpeg` to generate HLS segments. If `fluent-ffmpeg` fails inside Bun, it falls back to a raw `Bun.spawn` child process execution. Updates the DB state to `processed` or `failed` and acks/nacks the message.
 
-### Key Components
+### 3. Messaging (RabbitMQ)
+- **Role:** Decouple ingest from the CPU-heavy transcode process.
+- **Topology:** Messages go to a topic exchange (`video.events`) and route to a Quorum queue (`video.transcode`).
+- **Failure Handling:** There is no active retry loop. If a worker nacks a message without requeuing, RabbitMQ routes it through a fanout Dead Letter Exchange (`video.events.dlx`) to a Quorum Dead Letter Queue (`video.transcode.dlq`).
+- **Manager:** The custom `RabbitManager` enforces idempotency, jittered exponential backoff for connection failures, and safe consumer re-registration if the channel collapses.
 
-1. **Express Server:**
-   - Handles HTTP requests for video uploads and fetching processed videos.
-   - Interacts with MongoDB to store and retrieve video metadata.
-   - Publishes messages to RabbitMQ to queue video processing tasks.
+### 4. Infrastructure (Kubernetes & Helm)
+- **Storage:** Both the API (uploading) and the worker (transcoding) mount a `ReadWriteMany` (RWX) PersistentVolumeClaim. The API writes the raw `.mp4`, and the worker reads it and writes the `.m3u8`/`.ts` output to the same volume.
+- **Scaling (API):** HorizontalPodAutoscaler (HPA) scales the API gateway pods based on CPU utilization.
+- **Scaling (Worker):** KEDA `ScaledObject` scales the worker pods based on the length of the `video.transcode` RabbitMQ queue. If the queue is empty, workers can scale to 0.
+- **Ingress:** NGINX ingress configured with `proxy-body-size: 500m` to match the Hono `bodyLimit` middleware, and `least_conn` load balancing.
 
-2. **Video Processing Service:**
-   - Listens to RabbitMQ for video processing tasks.
-   - Uses `ffmpeg` to convert videos to HLS format.
-   - Updates the status of videos in MongoDB after processing.
-
-3. **MongoDB:**
-   - Stores metadata about videos, including their status and file paths.
-
-4. **RabbitMQ:**
-   - Manages the queue for video processing tasks.
-   - Ensures that video processing tasks are handled asynchronously.
-
-### Technologies Used
-
-- **Node.js:** JavaScript runtime for building the server and processing services.
-- **TypeScript:** Superset of JavaScript that adds static types.
-- **Express:** Web framework for Node.js to handle HTTP requests.
-- **MongoDB:** NoSQL database for storing video metadata.
-- **RabbitMQ:** Message broker for managing video processing tasks.
-- **ffmpeg:** Command-line tool for processing video and audio files.
-- **Docker:** Container platform for managing software processes in isolated environments.
-- **Kubernetes:** Orchestration system for automating deployment, scaling, and management of containerized applications.
-- **Helm:** Kubernetes package manager for deploying and managing applications.
+### 5. Monorepo (Bun Workspaces)
+- The repository uses Bun's native workspace feature. Shared logic (RabbitMQ topology, Pino structured JSON logging, Zod schemas, AppError hierarchy) lives in `packages/shared`. Both the API and the worker pull it locally via `"@hls/shared": "workspace:*"`.
 
 ## Data Flow
 
-1. **Video Upload:**
-   - A user uploads a video via an HTTP request to the Express server.
-   - The server saves the video file and stores metadata in MongoDB.
-   - The server publishes a message to RabbitMQ to queue the video for processing.
-
-2. **Video Processing:**
-   - The Video Processing Service listens to RabbitMQ for new video processing tasks.
-   - Upon receiving a task, it retrieves the video file and uses `ffmpeg` to convert it to HLS format.
-   - After processing, it updates the video's status in MongoDB.
-
-3. **Fetching Processed Videos:**
-   - Users can fetch the processed videos via HTTP requests to the Express server.
-   - The server retrieves the video metadata from MongoDB and serves the processed video files.
-
-## Conclusion
-
-This document provides an overview of the `microservice-example_` application, including its architecture, key components, technologies used, and data flow. For more detailed instructions on deploying the application using Helm, please refer to the [README.md](./charts/microservice-example-chart/README.md) file.
+1. `POST /api/upload` -> Hono validates -> `Bun.write()` -> Mongo `uploaded` -> RabbitMQ publish.
+2. Worker picks up job -> Mongo `processing` -> FFmpeg runs -> HLS files written -> Mongo `processed` -> Ack message.
+3. If FFmpeg fails -> Mongo `failed` -> Nack message -> RabbitMQ routes to DLQ.
