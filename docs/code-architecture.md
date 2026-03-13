@@ -2,118 +2,74 @@
 
 ## Overview
 
-The `hls-microservice-backend` project is designed to transform video files into HLS (HTTP Live Streaming) format using a microservices architecture. This document provides an overview of the application's architecture, the roles of various components, and detailed descriptions of key files and directories.
+The `hls-microservice-backend` project is designed to transform video files into HLS (HTTP Live Streaming) format using a microservices architecture. It has been fully rewritten in 2025 to utilize **Bun** as the native runtime and **Hono** as the web framework.
 
 ## Architecture Components
 
-### Express Server
-
-The Express server handles HTTP requests for uploading videos and fetching processed videos. It interacts with MongoDB to store and retrieve video metadata and publishes messages to RabbitMQ to queue video processing tasks.
+### API Gateway (Hono)
+The Hono server handles HTTP requests for uploading videos and fetching processed videos. It interacts with MongoDB to store and retrieve video metadata and publishes messages to RabbitMQ to queue video processing tasks.
 
 - **Key responsibilities:**
-  - Handle video uploads via REST API.
+  - Handle high-performance video uploads using `c.req.parseBody()` and `Bun.write()`.
+  - Validate all inputs strictly using Zod and `@hono/zod-validator`.
   - Store video metadata in MongoDB.
-  - Publish messages to RabbitMQ for video processing tasks.
-  - Serve processed video files.
+  - Publish tasks to RabbitMQ.
+  - Serve structured JSON logs via Pino.
 
-### Video Processing Service
-
-The Video Processing Service listens to RabbitMQ for video processing tasks. Upon receiving a task, it retrieves the video file and uses `ffmpeg` to convert it to HLS format. After processing, it updates the video's status in MongoDB.
+### Video Processing Service (Worker)
+The worker listens to RabbitMQ for video processing tasks. Upon receiving a task, it utilizes `fluent-ffmpeg` (with a native `Bun.spawn` fallback) to convert the video to HLS format. After processing, it conditionally updates the video's status in MongoDB to prevent duplicate processing.
 
 - **Key responsibilities:**
-  - Listen to RabbitMQ for video processing tasks.
-  - Convert videos to HLS format using `ffmpeg`.
-  - Update the status of videos in MongoDB.
+  - Consume RabbitMQ video processing tasks.
+  - Transcode videos to HLS format robustly.
+  - Manage the MongoDB state machine (`uploaded` -> `processing` -> `processed` / `failed`).
+  - Expose health metrics via a minimal internal Hono app on port 3001.
 
 ### MongoDB
+MongoDB is used to store metadata about videos. The schema uses strict Mongoose v9 typing and integrates Zod validation rules at the schema level.
 
-MongoDB is used to store metadata about videos, including their status and file paths.
-
-- **Key responsibilities:**
-  - Store video metadata.
-  - Provide data retrieval for video metadata.
-
-### RabbitMQ
-
-RabbitMQ manages the queue for video processing tasks, ensuring that tasks are handled asynchronously.
-
-- **Key responsibilities:**
-  - Manage video processing task queue.
-  - Enable asynchronous processing of video tasks.
+### RabbitMQ (Custom Manager)
+A custom `RabbitManager` class in the shared workspace handles connection resilience, consumer idempotency, exponential backoff, and DLQ (Dead Letter Queue) routing.
 
 ## Data Flow
 
 1. **Video Upload:**
-   - A user uploads a video via an HTTP request to the Express server.
-   - The server saves the video file and stores metadata in MongoDB.
-   - The server publishes a message to RabbitMQ to queue the video for processing.
+   - A user uploads a video via an HTTP request to the API Gateway.
+   - The server validates the file and writes it to disk.
+   - The server publishes a `VideoJob` message to RabbitMQ.
 
 2. **Video Processing:**
-   - The Video Processing Service listens to RabbitMQ for new video processing tasks.
-   - Upon receiving a task, it retrieves the video file and uses `ffmpeg` to convert it to HLS format.
-   - After processing, it updates the video's status in MongoDB.
+   - The Worker Service receives the message.
+   - It locks the job in MongoDB (changing status to `processing`).
+   - It transcodes the file into HLS segments (`.m3u8` and `.ts`).
+   - It updates the database with the final status and output path.
+   - Failures are routed to the Dead Letter Queue.
 
 3. **Fetching Processed Videos:**
-   - Users can fetch the processed videos via HTTP requests to the Express server.
-   - The server retrieves the video metadata from MongoDB and serves the processed video files.
+   - Users fetch the video list or details via the API Gateway.
+   - The data is mapped to a strict API response payload before returning to the client.
 
 ## Key Files and Directories
 
-### Main Application
+### Shared Workspace (`packages/shared/`)
+- **src/rabbit/manager.ts:** The resilient RabbitMQ connection class.
+- **src/rabbit/topology.ts:** Quorum queue and DLX (Dead Letter Exchange) configuration.
+- **src/logging/logger.ts:** Shared Pino logger factory.
+- **src/errors/:** Shared typed application errors.
 
-- **src/index.ts:**
-  - Entry point of the Express server.
-  - Connects to MongoDB and RabbitMQ.
-  - Defines routes and middlewares.
+### API Gateway (`src/`)
+- **src/server.ts:** The `Bun.serve()` entry point.
+- **src/app.ts:** The Hono router, middleware wiring, and CORS config.
+- **src/routes/upload.ts:** High-performance file upload handler.
+- **src/schemas/video.schema.ts:** The single source of truth for validation rules (Zod).
 
-- **src/db.ts:**
-  - MongoDB connection setup.
+### Video Processing Service (`video-processing-service/`)
+- **src/worker.ts:** Entry point. Connects DB/RabbitMQ and starts consumers.
+- **src/consumers/video-process.consumer.ts:** Validates job schemas and handles state.
+- **src/services/transcoder.ts:** FFmpeg implementation with aggregate error fallback.
 
-- **src/routes/videoRoutes.ts:**
-  - Defines API routes for video operations.
-
-- **models/videoModel.ts:**
-  - Mongoose model for video documents.
-
-- **src/utils/rabbitMQ.ts:**
-  - Utility functions for connecting and interacting with RabbitMQ.
-
-- **src/utils/logger.ts:**
-  - Logger utility using Winston.
-
-### Video Processing Service
-
-- **video-processing-service/src/index.ts:**
-  - Entry point of the video processing service.
-  - Connects to MongoDB and RabbitMQ.
-  - Starts processing videos from the queue.
-
-- **video-processing-service/src/db.ts:**
-  - MongoDB connection setup for the service.
-
-- **video-processing-service/src/videoProcessor.ts:**
-  - Contains logic for converting videos to HLS format.
-
-### Configuration
-
-- **.env:**
-  - Environment variables for MongoDB URI, RabbitMQ configurations, and video processing settings.
-
-- **tsconfig.json:**
-  - TypeScript compiler options.
-
-- **Dockerfile:**
-  - Docker configuration for containerizing the application.
-
-- **docker-compose.yml:**
-  - Docker Compose configuration for running multiple services.
-
-### Kubernetes
-
-- **charts/microservice-example-chart/:**
-  - Helm chart for Kubernetes deployment.
-  - Contains templates and configuration values for deploying the application.
-
-## Conclusion
-
-This document provides an overview of the `microservice-example_` application's architecture, including its components, data flow, and key files and directories. For more detailed deployment instructions, please refer to the [README.md](../README.md) and other documentation files in the `docs` directory.
+### Configuration & Tooling
+- **package.json:** Bun workspace root defining the monorepo structure.
+- **biome.json:** Formatting and linting rules replacing Prettier/ESLint.
+- **docker-compose.yml:** Compose spec (v2) for local infra (Mongo 8.0, RabbitMQ 4.0).
+- **charts/hls-microservice-backend-chart/:** Production-grade Helm chart with HPA, KEDA, and strict probes.

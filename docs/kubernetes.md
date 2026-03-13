@@ -1,122 +1,200 @@
-This guide provides an in-depth explanation of how Kubernetes is used in this project, including how to deploy the application using Kubernetes and Helm.
+# Kubernetes
 
-## Table of Contents
+This chart runs the current stack. No Express leftovers. No local-cluster tutorial junk. Just the parts that keep uploads, transcodes, and HLS delivery working.
 
-1. [Introduction to Kubernetes](#introduction-to-kubernetes)
-2. [Setting Up a Kubernetes Cluster](#setting-up-a-kubernetes-cluster)
-3. [Using kubectl](#using-kubectl)
-4. [Helm Chart Deployment](#helm-chart-deployment)
-5. [Purpose of Each YAML File](#purpose-of-each-yaml-file)
+## Chart path
 
-## Introduction to Kubernetes
+- `charts/hls-microservice-backend-chart`
 
-Kubernetes is an open-source platform designed to automate deploying, scaling, and operating application containers. It groups containers that make up an application into logical units for easy management and discovery.
+## What gets deployed
 
-## Setting Up a Kubernetes Cluster
+- `main-service`
+  - Bun + Hono API
+  - service port: `3000`
+  - default replicas: `2`
+  - CPU-based HPA enabled
+- `video-processor`
+  - Bun worker with RabbitMQ consumer and ffmpeg work
+  - service port: `3001`
+  - queue-based KEDA scaling enabled
+- `hls-static`
+  - unprivileged NGINX serving generated HLS output
+  - service port: `8080`
+  - default replicas: `2`
+- shared PVC
+  - access mode: `ReadWriteMany`
+  - default size: `200Gi`
+  - mounts uploads and HLS output into all workloads that need them
+- optional ingress
+  - `/api` -> `main-service`
+  - `/hls` -> `hls-static`
 
-To deploy the `microservice-example_` application, you need a running Kubernetes cluster. You can use Minikube for local development or managed Kubernetes services like GKE, EKS, or AKS for production.
+## Why the PVC is `ReadWriteMany`
 
-### Prerequisites
+All three workloads touch the same media tree.
 
-1. **kubectl:** The Kubernetes command-line tool should be installed and configured to communicate with your cluster. [Install kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-2. **Helm:** Helm should be installed on your local machine. [Install Helm](https://helm.sh/docs/intro/install/)
-3. **Docker:** Docker should be installed and running on your local machine. [Get Docker](https://www.docker.com/get-started)
+- API writes uploads to `UPLOAD_DIR`
+- worker reads from `UPLOAD_DIR`
+- worker writes playlists and segments to `HLS_OUTPUT_DIR`
+- NGINX serves `HLS_OUTPUT_DIR` as static files
 
-### Steps to Set Up a Kubernetes Cluster
+If you switch this to `ReadWriteOnce`, you are choosing pain.
 
-1. **Minikube (Local Development):**
-   ```sh
-   minikube start
-   ```
+## Storage layout
 
-2. **Managed Kubernetes Services:**
-   Follow the respective documentation for GKE, EKS, or AKS to create a cluster.
+- upload path: `/usr/src/app/uploads`
+- HLS path: `/usr/src/app/hls`
+- PVC subpaths:
+  - `uploads`
+  - `hls`
+- `hls-static` mounts the `hls` subpath read-only at `/usr/share/nginx/html/hls`
 
-## Using kubectl
+## API scaling
 
-`kubectl` is the command-line tool for interacting with Kubernetes clusters. Below are some basic commands to get started:
+The API uses a plain HPA. That is enough.
 
-- **Get cluster information:**
-  ```sh
-  kubectl cluster-info
-  ```
+- min replicas: `2`
+- max replicas: `10`
+- target CPU utilization: `70`
+- scale up behavior:
+  - up to `100%` per `60s`
+  - or `2` pods per `60s`
+- scale down stabilization: `300s`
 
-- **List all nodes in the cluster:**
-  ```sh
-  kubectl get nodes
-  ```
+Do not wire the API to queue depth. The API is request-driven, not backlog-driven.
 
-- **Get the status of all pods:**
-  ```sh
-  kubectl get pods
-  ```
+## Worker scaling with KEDA
 
-- **Describe a specific pod:**
-  ```sh
-  kubectl describe pod <pod-name>
-  ```
+The worker scales off RabbitMQ queue length. That is the whole point.
 
-## Helm Chart Deployment
+- `ScaledObject` target: `video-processor` deployment
+- trigger type: `rabbitmq`
+- queue name: `video.transcode`
+- mode: `QueueLength`
+- activation value: `1`
+- target value: `5`
+- polling interval: `30s`
+- cooldown period: `300s`
+- min replicas: `1`
+- max replicas: `10`
 
-### Packaging the Helm Chart
+`TriggerAuthentication` reads `RABBITMQ_URL` from the chart secret. If that secret is wrong, KEDA does nothing and backlog grows.
 
-To package the Helm chart, navigate to the `charts/microservice-example-chart/` directory and run:
-```sh
-helm package .
+## Worker concurrency inside each pod
+
+KEDA scales pod count. `MAX_CONCURRENT_JOBS` scales work per pod.
+
+- worker RabbitMQ prefetch = `MAX_CONCURRENT_JOBS`
+- env default = `4`
+- effective parallelism is roughly:
+
+```text
+worker pods * MAX_CONCURRENT_JOBS
 ```
-This command will create a `.tgz` file that can be used to deploy the chart.
 
-### Deploying the Helm Chart
+Do not tune this blind. More concurrency means more ffmpeg processes, more CPU, more memory, and more IO against the shared volume.
 
-To deploy the chart, use the `helm install` command:
-```sh
-helm install my-release-name ./microservice-example-chart
+## Probes and startup gates
+
+Both main workloads block on dependencies before starting.
+
+- init container waits for MongoDB on `27017`
+- init container waits for RabbitMQ on `5672`
+- API probes:
+  - live: `/health/live`
+  - ready: `/health/ready`
+- worker probes:
+  - live: `/health`
+  - ready: `/ready`
+- termination grace period:
+  - API: `60s`
+  - worker: `180s`
+
+That long worker grace period is deliberate. Killing ffmpeg jobs mid-write is a good way to produce garbage files.
+
+## Ingress and upload limits
+
+If ingress is enabled, NGINX is configured with these annotations:
+
+```yaml
+nginx.ingress.kubernetes.io/load-balance: least_conn
+nginx.ingress.kubernetes.io/proxy-body-size: "500m"
+nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+nginx.ingress.kubernetes.io/proxy-buffering: "off"
 ```
-Replace `my-release-name` with a name for your release. This command will deploy the `microservice-example_` application to your Kubernetes cluster.
 
-### Verifying the Deployment
+`proxy-body-size` must stay aligned with the application limits.
 
-To verify the deployment, check the status of the Helm release:
+- Bun server: `maxRequestBodySize = MAX_UPLOAD_BYTES`
+- Hono upload route: `bodyLimit({ maxSize: MAX_UPLOAD_BYTES })`
+- default app limit: `500 * 1024 * 1024`
+- default ingress limit: `500m`
+
+If one layer is lower than the others, uploads fail there first. Then you get support tickets about random `413` responses and broken uploads.
+
+## Minimal install
+
 ```sh
-helm status my-release-name
+helm upgrade --install hls ./charts/hls-microservice-backend-chart \
+  --namespace video \
+  --create-namespace \
+  --set secret.data.mongoUri='mongodb://mongodb.video.svc.cluster.local:27017/hls-microservice' \
+  --set secret.data.rabbitmqUrl='amqp://user:pass@rabbitmq.video.svc.cluster.local:5672'
 ```
 
-You can also use `kubectl` to check the status of the pods and services:
-```sh
-kubectl get pods
-kubectl get services
+Use a real values override file for anything beyond a smoke test.
+
+## Values that matter first
+
+```yaml
+secret:
+  data:
+    mongoUri: mongodb://mongodb.video.svc.cluster.local:27017/hls-microservice
+    rabbitmqUrl: amqp://user:pass@rabbitmq.video.svc.cluster.local:5672
+
+config:
+  rabbitmqQueue: video.transcode
+  uploadDir: /usr/src/app/uploads
+  hlsDir: /usr/src/app/hls
+
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteMany
+
+mainService:
+  autoscaling:
+    enabled: true
+
+videoProcessor:
+  keda:
+    enabled: true
+
+ingress:
+  enabled: true
 ```
 
-## Purpose of Each YAML File
+## Sanity checks after deploy
 
-### `Chart.yaml`
+```sh
+kubectl get pods -n video
+kubectl get hpa -n video
+kubectl get scaledobject -n video
+kubectl get pvc -n video
+kubectl describe scaledobject <scaledobject-name> -n video
+```
 
-Defines metadata for a Helm chart, including the API version, name, description, type, version, and application version.
+- API pods should reach ready state and settle behind the HPA.
+- worker pods should scale when `video.transcode` backlog grows.
+- PVC must bind with `ReadWriteMany`. If it does not, the architecture does not work as designed.
+- ingress uploads must accept files up to the configured limit. Test that before calling the release done.
 
-### `values.yaml`
+## Things that will hurt you
 
-Contains configuration values for the chart, including the number of replicas, image details, service configurations, ingress settings, resource allocations, and MongoDB and RabbitMQ connection details.
-
-### `templates/deployment.yaml`
-
-Defines a Kubernetes Deployment for the main service, specifying the number of replicas, container image, environment variables, and ports.
-
-### `templates/service.yaml`
-
-Defines a Kubernetes Service for the main service, specifying the service type and ports configuration.
-
-### `templates/video-processing-deployment.yaml`
-
-Defines a Kubernetes Deployment for the video processing service, specifying the number of replicas, container image, environment variables, and ports.
-
-### `templates/video-processing-service.yaml`
-
-Defines a Kubernetes Service for the video processing service, specifying the service type and ports.
-
-### `templates/configmap.yaml`
-
-Defines a Kubernetes ConfigMap with key-value pairs for MongoDB URI, RabbitMQ URL, and RabbitMQ Queue.
-
-## Conclusion
-
-This guide provides a comprehensive overview of deploying the `microservice-example_` application on Kubernetes using Helm. For further assistance, refer to the official [Kubernetes documentation](https://kubernetes.io/docs/) and [Helm documentation](https://helm.sh/docs/).
+- Disabling KEDA and pretending worker HPA on CPU is an equivalent substitute.
+- Using a storage class that cannot provide `ReadWriteMany`.
+- Changing queue names in one place and not the other two.
+- Lowering ingress body size below the Bun and Hono upload limits.
+- Shortening worker termination grace because you are impatient.

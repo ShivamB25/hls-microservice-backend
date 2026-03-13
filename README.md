@@ -1,45 +1,57 @@
+# HLS Video Processing Microservice
 
-A highly scalable and efficient system for transforming video files into HLS format using a microservices architecture.
+A highly scalable and efficient system for transforming video files into HLS (HTTP Live Streaming) format using a microservices architecture.
+
+## 🚀 2025 Architecture Rewrite
+
+This project has been completely rewritten from its original Node.js/Express stack to a high-performance **Bun + Hono** architecture. 
+
+### Key Upgrades:
+- **Bun Native**: Replaced Node.js, `npm`, and `ts-node`. Bun is now the runtime (`Bun.serve`), package manager (Bun Workspaces), bundler, and test runner.
+- **Hono.js**: Replaced Express with the blazing-fast Hono framework, utilizing `Bun.write` for zero-overhead multi-part file uploads (replacing `multer`).
+- **Zod Validation**: Replaced manual checks with strict `Zod` schemas and `@hono/zod-validator`.
+- **Resilient RabbitMQ**: Replaced raw `amqplib` with a robust `RabbitManager` featuring exponential backoff, jitter, quorum queues, and a Dead Letter Queue (DLQ).
+- **Structured Logging**: Replaced `winston` with `pino` for low-overhead, request-scoped JSON logging.
+- **Monorepo**: Extracted shared logic into a `@hls/shared` workspace package to eliminate cross-service coupling.
+- **Production Kubernetes**: Fully rewritten Helm chart with KEDA (queue-based scaling), HPAs, proper probes, and ReadWriteMany PVCs.
+
+---
 
 ## Overview
 
-This project is designed to transform videos into HLS format using a microservices architecture. The system is written in TypeScript and uses asynchronous processing to ensure scalability and efficiency. Key components include an Express.js server for handling HTTP requests, MongoDB for data storage, RabbitMQ for message queuing, and FFmpeg for video processing.
+The system consists of two microservices that communicate asynchronously via RabbitMQ to process heavy video payloads without blocking the API:
+
+1. **API Gateway (`src/`)**: A stateless Hono server that receives uploads, validates them with Zod, writes them to disk, and queues them in RabbitMQ.
+2. **Video Processor (`video-processing-service/`)**: A stateful worker that consumes RabbitMQ jobs, transcodes the video to HLS via `fluent-ffmpeg` (with a native `Bun.spawn` fallback), and manages the Mongoose state machine.
 
 ### Project Structure
 
-- **src/**: Contains the main application code.
-  - **index.ts**: Entry point of the Express.js server.
-  - **db.ts**: MongoDB connection setup.
-  - **routes/**: Defines the API routes for video operations.
-  - **utils/**: Utility functions, including RabbitMQ setup.
-- **models/**: Mongoose models for MongoDB.
-- **video-processing-service/**: Microservice for processing videos.
-  - **src/**: Contains the video processing code.
-  - **index.ts**: Entry point of the video processing service.
-  - **db.ts**: MongoDB connection setup for the service.
-  - **videoProcessor.ts**: Contains the logic for converting videos to HLS format.
-- **types/**: TypeScript type definitions.
-- **.env**: Environment variables.
-- **Dockerfile**: Docker configuration for containerization.
-- **charts/hls-microservice-backend-chart/**: Helm chart for Kubernetes deployment.
-
-## Features
-
-- Upload videos via a REST API.
-- Store video metadata in MongoDB.
-- Queue video processing tasks using RabbitMQ.
-- Convert videos to HLS format asynchronously.
-- Fetch processed videos with pagination support.
+```text
+hls-microservice-backend/
+├── package.json              # Bun workspace root
+├── packages/
+│   └── shared/               # @hls/shared workspace (RabbitManager, Pino, Errors)
+├── src/                      # API Gateway (Hono)
+│   ├── server.ts             # Bun.serve() entry point
+│   ├── routes/               # Hono routers (upload, videos, health)
+│   └── schemas/              # Zod validation schemas
+├── video-processing-service/ # Worker Service
+│   ├── src/worker.ts         # Consumer entry point
+│   ├── src/consumers/        # RabbitMQ message handlers
+│   └── src/services/         # FFmpeg transcoder and storage
+├── models/                   # Mongoose schemas (shared)
+├── Dockerfile                # Multi-stage Bun build for API
+└── charts/hls-microservice-backend-chart/ # Production Helm Chart
+```
 
 ## Getting started
 
 ### Requirements
-
-- Node.js (v14 or later)
-- MongoDB
-- RabbitMQ
-- Docker
-- Kubernetes (optional, for Helm chart)
+- [Bun](https://bun.sh/) (v1.x)
+- MongoDB (v8.x recommended)
+- RabbitMQ (v4.x with management plugin recommended)
+- FFmpeg (installed locally for dev)
+- Docker & Kubernetes (optional, for prod deployment)
 
 ### Quickstart
 
@@ -48,51 +60,41 @@ This project is designed to transform videos into HLS format using a microservic
    git clone https://github.com/ShivamB25/hls-microservice-backend.git
    cd hls-microservice-backend
    ```
-2. **Install dependencies**
+
+2. **Install dependencies using Bun**
    ```sh
-   npm install
-   cd video-processing-service
-   npm install
-   cd ..
+   bun install
    ```
+   *(This installs dependencies for the root, the shared package, and the worker simultaneously via Bun workspaces).*
+
 3. **Set up environment variables**
-   - Copy `.env.example` to `.env` and fill in the necessary details.
-4. **Run the services**
-   - Start MongoDB and RabbitMQ.
-   - Run the main service:
+   ```sh
+   cp .env.example .env
+   ```
+   *(Ensure MongoDB and RabbitMQ are running locally or via Docker Compose).*
+
+4. **Run the services locally**
+   - Run the API Gateway (Port 3000):
      ```sh
-     npm start
+     bun run dev
      ```
-   - Run the video processing service:
+   - Run the Video Processor (Port 3001):
      ```sh
-     cd video-processing-service
-     npm start
+     bun run dev:worker
      ```
-5. **Docker and Kubernetes (optional)**
-   - Build Docker images:
-     ```sh
-     docker build -t hls-microservice-backend .
-     cd video-processing-service
-     docker build -t video-processing-service .
-     ```
-   - Deploy using Helm:
-     ```sh
-     helm install microservice-example_ ./helm
-     ```
+
+5. **Docker Compose (Local Infra)**
+   ```sh
+   docker compose up -d
+   ```
 
 ## Documentation
 
-For more detailed information, refer to the following documentation files:
+For detailed architecture and deployment information, see:
 
-1. [Kubernetes Deployment Guide](./docs/kubernetes.md)
-   - An in-depth explanation of how Kubernetes is used in the project, including setting up a Kubernetes cluster, using kubectl, and the purpose of each YAML file in the Helm chart.
-   
-2. [Code Architecture](./docs/code-architecture.md)
-   - An overview of the project's architecture, explaining the roles of the Express server, video-processing service, MongoDB, and RabbitMQ, along with detailed descriptions of key files and directories.
-
-3. [RabbitMQ Usage](./docs/rabbitmq.md)
-   - An explanation of the purpose of RabbitMQ in the project, including how it is used for message queuing, how it enables asynchronous processing, and how it is configured within the project. Examples of publishing and consuming messages are also provided.
+1. [Code Architecture](./docs/code-architecture.md) - Deep dive into the Bun/Hono monorepo, data flow, and error handling.
+2. [RabbitMQ Usage](./docs/rabbitmq.md) - Details on Quorum queues, the Dead Letter Exchange, and the custom RabbitManager.
+3. [Kubernetes Deployment Guide](./docs/kubernetes.md) - How to deploy the Helm chart with KEDA scaling and ReadWriteMany PVCs.
 
 ## License
-
 This project is licensed under the MIT License. See the LICENSE file for more details.
