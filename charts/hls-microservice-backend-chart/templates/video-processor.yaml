@@ -1,0 +1,219 @@
+{{- if .Values.videoProcessor.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hls.worker.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 4 }}
+  {{- with .Values.videoProcessor.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.videoProcessor.service.type }}
+  selector:
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.videoProcessor.service.port }}
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hls.worker.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 4 }}
+spec:
+  replicas: {{ if .Values.videoProcessor.keda.enabled }}{{ .Values.videoProcessor.keda.minReplicaCount }}{{ else }}{{ .Values.videoProcessor.replicaCount }}{{ end }}
+  revisionHistoryLimit: 3
+  strategy:
+    {{- toYaml .Values.videoProcessor.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hls.commonLabels" . | nindent 8 }}
+        {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 8 }}
+        {{- with .Values.videoProcessor.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.videoProcessor.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "hls.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.videoProcessor.terminationGracePeriodSeconds }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.videoProcessor.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.videoProcessor.waitForDependencies }}
+      initContainers:
+        - name: wait-for-mongodb
+          image: "{{ .Values.global.waitFor.image.repository }}:{{ .Values.global.waitFor.image.tag }}"
+          imagePullPolicy: {{ .Values.global.waitFor.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - >-
+              until nc -z -w 2 {{ .Values.externalServices.mongodb.host }} {{ .Values.externalServices.mongodb.port }};
+              do echo "waiting for mongodb"; sleep 2; done
+        - name: wait-for-rabbitmq
+          image: "{{ .Values.global.waitFor.image.repository }}:{{ .Values.global.waitFor.image.tag }}"
+          imagePullPolicy: {{ .Values.global.waitFor.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - >-
+              until nc -z -w 2 {{ .Values.externalServices.rabbitmq.host }} {{ .Values.externalServices.rabbitmq.port }};
+              do echo "waiting for rabbitmq"; sleep 2; done
+      {{- end }}
+      containers:
+        - name: video-processor
+          image: "{{ .Values.videoProcessor.image.repository }}:{{ default .Chart.AppVersion .Values.videoProcessor.image.tag }}"
+          imagePullPolicy: {{ .Values.videoProcessor.image.pullPolicy }}
+          {{- with .Values.videoProcessor.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.videoProcessor.service.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "hls.configmapName" . }}
+            - secretRef:
+                name: {{ include "hls.secretName" . }}
+            {{- with .Values.videoProcessor.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: PORT
+              value: {{ .Values.videoProcessor.service.port | quote }}
+            - name: UPLOAD_DIR
+              value: {{ .Values.config.uploadDir | quote }}
+            - name: HLS_OUTPUT_DIR
+              value: {{ .Values.config.hlsDir | quote }}
+            {{- with .Values.videoProcessor.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.config.workerHealthPath }}
+              port: http
+            {{- toYaml .Values.videoProcessor.livenessProbe | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.config.workerReadyPath }}
+              port: http
+            {{- toYaml .Values.videoProcessor.readinessProbe | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.config.workerReadyPath }}
+              port: http
+            {{- toYaml .Values.videoProcessor.startupProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.videoProcessor.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: media
+              mountPath: {{ .Values.config.uploadDir }}
+              subPath: {{ .Values.persistence.subPaths.uploads }}
+            - name: media
+              mountPath: {{ .Values.config.hlsDir }}
+              subPath: {{ .Values.persistence.subPaths.hls }}
+            {{- end }}
+            {{- with .Values.videoProcessor.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: media
+          persistentVolumeClaim:
+            claimName: {{ include "hls.pvcName" . }}
+        {{- end }}
+        {{- with .Values.videoProcessor.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.videoProcessor.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.videoProcessor.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.videoProcessor.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if .Values.videoProcessor.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "hls.worker.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.videoProcessor.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 6 }}
+{{- end }}
+{{- if .Values.videoProcessor.keda.enabled }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "hls.worker.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: {{ include "hls.secretName" . }}
+      key: RABBITMQ_URL
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "hls.worker.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "hls.worker.fullname" . }}
+  pollingInterval: {{ .Values.videoProcessor.keda.pollingInterval }}
+  cooldownPeriod: {{ .Values.videoProcessor.keda.cooldownPeriod }}
+  minReplicaCount: {{ .Values.videoProcessor.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.videoProcessor.keda.maxReplicaCount }}
+  triggers:
+    - type: rabbitmq
+      authenticationRef:
+        name: {{ include "hls.worker.fullname" . }}
+      metadata:
+        protocol: auto
+        queueName: {{ .Values.config.rabbitmqQueue | quote }}
+        mode: QueueLength
+        value: {{ .Values.videoProcessor.keda.queueLength | quote }}
+        activationValue: {{ .Values.videoProcessor.keda.activationQueueLength | quote }}
+{{- end }}
+{{- end }}

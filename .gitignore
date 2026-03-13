@@ -129,3 +129,15 @@ dist
 .yarn/install-state.gz
 .pnp.*
 .DS_Store
+
+# Project-specific
+uploads/
+hls/
+dist/
+video-processing-service/dist/
+*.lockb
+bun.lock
+
+# IDE
+.vscode/
+.idea/

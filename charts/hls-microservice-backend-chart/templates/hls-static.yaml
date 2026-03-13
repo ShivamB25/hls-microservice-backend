@@ -1,0 +1,110 @@
+{{- if .Values.hlsStatic.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hls.static.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "hls-static") | nindent 4 }}
+  {{- with .Values.hlsStatic.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.hlsStatic.service.type }}
+  selector:
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "hls-static") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.hlsStatic.service.port }}
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hls.static.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "hls-static") | nindent 4 }}
+spec:
+  replicas: {{ .Values.hlsStatic.replicaCount }}
+  revisionHistoryLimit: 3
+  strategy:
+    {{- toYaml .Values.hlsStatic.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "hls.componentSelectorLabels" (dict "root" . "component" "hls-static") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hls.commonLabels" . | nindent 8 }}
+        {{- include "hls.componentSelectorLabels" (dict "root" . "component" "hls-static") | nindent 8 }}
+        {{- with .Values.hlsStatic.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.hlsStatic.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "hls.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.hlsStatic.terminationGracePeriodSeconds }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hlsStatic.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: hls-static
+          image: "{{ .Values.hlsStatic.image.repository }}:{{ .Values.hlsStatic.image.tag }}"
+          imagePullPolicy: {{ .Values.hlsStatic.image.pullPolicy }}
+          {{- with .Values.hlsStatic.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.hlsStatic.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.hlsStatic.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.hlsStatic.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.hlsStatic.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: media
+              mountPath: /usr/share/nginx/html/hls
+              subPath: {{ .Values.persistence.subPaths.hls }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.hlsStatic.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: media
+          persistentVolumeClaim:
+            claimName: {{ include "hls.pvcName" . }}
+        {{- end }}
+        {{- with .Values.hlsStatic.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.hlsStatic.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hlsStatic.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hlsStatic.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

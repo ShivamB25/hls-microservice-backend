@@ -1,35 +1,39 @@
 {
   "name": "hls-microservice-backend",
-  "version": "1.0.0",
-  "main": "index.ts",
+  "version": "2.0.0",
+  "private": true,
+  "workspaces": [
+    ".",
+    "video-processing-service",
+    "packages/shared"
+  ],
   "scripts": {
-    "start": "ts-node -r dotenv/config src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc"
+    "dev": "bun run --hot src/server.ts",
+    "start": "bun run src/server.ts",
+    "build": "bun build src/server.ts --outdir dist --target bun --minify --sourcemap=linked",
+    "dev:worker": "bun run --hot video-processing-service/src/worker.ts",
+    "start:worker": "bun run video-processing-service/src/worker.ts",
+    "build:worker": "bun build video-processing-service/src/worker.ts --outdir video-processing-service/dist --target bun --minify",
+    "build:all": "bun run build && bun run build:worker",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "bunx biome check .",
+    "lint:fix": "bunx biome check --write .",
+    "format": "bunx biome format --write ."
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "@types/fluent-ffmpeg": "^2.1.27",
-    "amqplib": "^0.10.4",
-    "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "mongoose": "^8.4.0",
-    "mongoose-paginate-v2": "^1.8.1",
-    "multer": "^1.4.5-lts.1",
-    "winston": "^3.13.0"
+    "@hls/shared": "workspace:*",
+    "@hono/zod-validator": "^0.7.6",
+    "hono": "^4.12.7",
+    "mongoose": "^9.3.0",
+    "mongoose-paginate-v2": "^1.9.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/amqplib": "^0.10.5",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
-    "@types/mongoose": "^5.11.97",
-    "@types/multer": "^1.4.11",
-    "@types/node": "^20.12.12",
-    "dotenv": "^16.4.5",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.4.5"
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.19.15",
+    "bun-types": "latest",
+    "typescript": "^5.9.3"
   }
 }

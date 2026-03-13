@@ -1,67 +1,148 @@
-version: '3.8'
+name: hls-microservice
 
 services:
-  main-service:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    env_file: .env
+  mongo:
+    image: mongo:8.0
+    container_name: hls-mongo
+    restart: unless-stopped
     environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - MONGO_URI=${MONGO_URI}
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-hls-microservice}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "bun", "run", "healthcheck"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 30s
       timeout: 10s
-      retries: 3
-    depends_on:
-      - rabbitmq
-      - mongodb
-
-  video-processing-service:
-    build:
-      context: ./video-processing-service
-      dockerfile: Dockerfile
-    ports:
-      - "3001:3001"
-    env_file: .env
-    environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - MONGO_URI=${MONGO_URI}
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - RABBITMQ_QUEUE=${RABBITMQ_QUEUE}
-    healthcheck:
-      test: ["CMD", "bun", "run", "healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    depends_on:
-      - rabbitmq
-      - mongodb
+      retries: 5
+      start_period: 40s
+    networks:
+      - backend
 
   rabbitmq:
-    image: "rabbitmq:3-management"
+    image: rabbitmq:4.0-management
+    container_name: hls-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 60s
+    networks:
+      - backend
 
-  mongodb:
-    image: "mongo:4.2"
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hls-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      SERVICE_NAME: api-gateway
+      MONGO_URI: mongodb://${MONGO_ROOT_USER:-root}:${MONGO_ROOT_PASSWORD:-password}@mongo:27017/${MONGO_DB:-hls-microservice}?authSource=admin
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
     ports:
-      - "27017:27017"
+      - "3000:3000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 256M
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health/live"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
+      start_period: 20s
+    networks:
+      - backend
+    volumes:
+      - media_data:/usr/src/app/uploads
+
+  video-processor:
+    build:
+      context: ./video-processing-service
+      dockerfile: Dockerfile
+    container_name: hls-processor
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      SERVICE_NAME: video-processor
+      MONGO_URI: mongodb://${MONGO_ROOT_USER:-root}:${MONGO_ROOT_PASSWORD:-password}@mongo:27017/${MONGO_DB:-hls-microservice}?authSource=admin
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      UPLOAD_DIR: /usr/src/app/uploads
+      HLS_OUTPUT_DIR: /usr/src/app/hls
+    ports:
+      - "3001:3001"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3G
+        reservations:
+          cpus: "1.0"
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - backend
+    volumes:
+      - media_data:/usr/src/app/uploads
+      - hls_data:/usr/src/app/hls
+
+  hls-static:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    container_name: hls-static
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - hls_data:/usr/share/nginx/html/hls:ro
+    networks:
+      - backend
+
+volumes:
+  mongo_data:
+  rabbitmq_data:
+  media_data:
+  hls_data:
+
+networks:
+  backend:
+    driver: bridge

@@ -1,8 +1,18 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: hls-microservice-backend-config
+  name: {{ include "hls.configmapName" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.selectorLabels" . | nindent 4 }}
 data:
-  MONGO_URI: {{ .Values.mongodb.uri | quote }}
-  RABBITMQ_URL: {{ .Values.rabbitmq.url | quote }}
-  RABBITMQ_QUEUE: {{ .Values.rabbitmq.queue | quote }}
+  RABBITMQ_QUEUE: {{ .Values.config.rabbitmqQueue | quote }}
+  API_PORT: {{ .Values.mainService.service.port | quote }}
+  VIDEO_PROCESSOR_PORT: {{ .Values.videoProcessor.service.port | quote }}
+  API_HEALTH_PATH: {{ .Values.config.apiHealthPath | quote }}
+  API_READY_PATH: {{ .Values.config.apiReadyPath | quote }}
+  WORKER_HEALTH_PATH: {{ .Values.config.workerHealthPath | quote }}
+  WORKER_READY_PATH: {{ .Values.config.workerReadyPath | quote }}
+  METRICS_PATH: {{ .Values.config.metricsPath | quote }}
+  UPLOAD_DIR: {{ .Values.config.uploadDir | quote }}
+  HLS_OUTPUT_DIR: {{ .Values.config.hlsDir | quote }}

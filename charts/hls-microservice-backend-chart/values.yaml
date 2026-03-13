@@ -1,39 +1,426 @@
-replicaCount: 1
+nameOverride: hls-microservice-backend
+fullnameOverride: ""
 
-image:
-  repository: hls-microservice-backend
-  tag: "latest"
-  pullPolicy: IfNotPresent
+global:
+  commonLabels: {}
+  imagePullSecrets: []
+  waitFor:
+    image:
+      repository: busybox
+      tag: "1.36.1"
+      pullPolicy: IfNotPresent
 
-videoProcessingService:
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+externalServices:
+  mongodb:
+    host: mongodb.default.svc.cluster.local
+    port: 27017
+  rabbitmq:
+    host: rabbitmq.default.svc.cluster.local
+    port: 5672
+
+secret:
+  create: true
+  existingSecret: ""
+  annotations: {}
+  data:
+    mongoUri: ""
+    rabbitmqUrl: ""
+
+config:
+  rabbitmqQueue: video.transcode
+  apiHealthPath: /health/live
+  apiReadyPath: /health/ready
+  workerHealthPath: /health
+  workerReadyPath: /ready
+  metricsPath: /metrics
+  uploadDir: /usr/src/app/uploads
+  hlsDir: /usr/src/app/hls
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  annotations: {}
+  storageClassName: ""
+  accessModes:
+    - ReadWriteMany
+  size: 200Gi
+  volumeMode: Filesystem
+  subPaths:
+    uploads: uploads
+    hls: hls
+
+mainService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: hls-microservice-backend
+    tag: ""
+    pullPolicy: IfNotPresent
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  terminationGracePeriodSeconds: 60
+  service:
+    type: ClusterIP
+    port: 3000
+    annotations: {}
+  waitForDependencies: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  startupProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 30
+  pdb:
+    enabled: true
+    minAvailable: 1
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 0
+        selectPolicy: Max
+        policies:
+          - type: Percent
+            value: 100
+            periodSeconds: 60
+          - type: Pods
+            value: 2
+            periodSeconds: 60
+      scaleDown:
+        stabilizationWindowSeconds: 300
+        selectPolicy: Max
+        policies:
+          - type: Percent
+            value: 50
+            periodSeconds: 60
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    labels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: hls-microservice-backend
+                app.kubernetes.io/component: main
+  extraEnv: []
+  extraEnvFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
+
+videoProcessor:
+  enabled: true
+  replicaCount: 1
   image:
     repository: video-processing-service
-    tag: "latest"
+    tag: ""
     pullPolicy: IfNotPresent
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  terminationGracePeriodSeconds: 180
   service:
     type: ClusterIP
     port: 3001
+    annotations: {}
+  waitForDependencies: true
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 3Gi
+  livenessProbe:
+    initialDelaySeconds: 20
+    periodSeconds: 15
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  startupProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 30
+  pdb:
+    enabled: true
+    minAvailable: 1
+  keda:
+    enabled: true
+    pollingInterval: 30
+    cooldownPeriod: 300
+    minReplicaCount: 1
+    maxReplicaCount: 10
+    queueLength: "5"
+    activationQueueLength: "1"
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    labels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: hls-microservice-backend
+                app.kubernetes.io/component: video-processor
+  extraEnv: []
+  extraEnvFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
 
-service:
-  type: ClusterIP
-  port: 3000
+hlsStatic:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: nginxinc/nginx-unprivileged
+    tag: "1.27-alpine"
+    pullPolicy: IfNotPresent
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    fsGroup: 101
+    fsGroupChangePolicy: OnRootMismatch
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  terminationGracePeriodSeconds: 30
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: hls-microservice-backend
+                app.kubernetes.io/component: hls-static
+  extraVolumes: []
+  extraVolumeMounts: []
 
 ingress:
   enabled: false
-  annotations: {}
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/load-balance: least_conn
+    nginx.ingress.kubernetes.io/proxy-body-size: "500m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
   hosts:
-    - host: chart-example.local
-      paths: []
+    - host: video.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: main
+        - path: /hls
+          pathType: Prefix
+          service: hls-static
   tls: []
 
-resources: {}
-nodeSelector: {}
-tolerations: []
-affinity: []
-
-mongodb:
-  uri: "mongodbUrl"
-
-rabbitmq:
-  url: "amqp://localhost"
-  queue: "video-upload-queue"
+networkPolicy:
+  enabled: false
+  mainService:
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+        ports:
+          - protocol: TCP
+            port: 3000
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+        ports:
+          - protocol: TCP
+            port: 3000
+    egress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: data
+        ports:
+          - protocol: TCP
+            port: 27017
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: messaging
+        ports:
+          - protocol: TCP
+            port: 5672
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+        ports:
+          - protocol: UDP
+            port: 53
+  videoProcessor:
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: monitoring
+        ports:
+          - protocol: TCP
+            port: 3001
+    egress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: data
+        ports:
+          - protocol: TCP
+            port: 27017
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: messaging
+        ports:
+          - protocol: TCP
+            port: 5672
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+        ports:
+          - protocol: UDP
+            port: 53
+  hlsStatic:
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+        ports:
+          - protocol: TCP
+            port: 8080
+    egress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+        ports:
+          - protocol: UDP
+            port: 53

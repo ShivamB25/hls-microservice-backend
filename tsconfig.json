@@ -1,14 +1,12 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES6",
-    "module": "commonjs",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "outDir": "./dist",
-    "typeRoots": ["./node_modules/@types", "./types"]
+    "rootDir": ".",
+    "paths": {
+      "@hls/shared": ["./packages/shared/src/index.ts"],
+      "@hls/shared/*": ["./packages/shared/src/*"]
+    }
   },
-  "include": ["src/**/*.ts", "models/**/*.ts", "types/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts", "models/**/*.ts"],
+  "exclude": ["node_modules", "dist", "video-processing-service", "packages"]
 }

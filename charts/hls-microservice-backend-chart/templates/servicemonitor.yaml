@@ -1,0 +1,49 @@
+{{- if and .Values.mainService.enabled .Values.mainService.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hls.main.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "main") | nindent 4 }}
+    {{- with .Values.mainService.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "hls.componentSelectorLabels" (dict "root" . "component" "main") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: {{ .Values.mainService.serviceMonitor.path }}
+      interval: {{ .Values.mainService.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.mainService.serviceMonitor.scrapeTimeout }}
+{{- end }}
+{{- if and .Values.videoProcessor.enabled .Values.videoProcessor.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hls.worker.fullname" . }}
+  labels:
+    {{- include "hls.commonLabels" . | nindent 4 }}
+    {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 4 }}
+    {{- with .Values.videoProcessor.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "hls.componentSelectorLabels" (dict "root" . "component" "video-processor") | nindent 6 }}
+  endpoints:
+    - port: http
+      path: {{ .Values.videoProcessor.serviceMonitor.path }}
+      interval: {{ .Values.videoProcessor.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.videoProcessor.serviceMonitor.scrapeTimeout }}
+{{- end }}
