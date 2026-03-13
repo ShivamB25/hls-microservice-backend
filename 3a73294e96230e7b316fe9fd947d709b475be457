@@ -1,0 +1,38 @@
+docs/code-architecture.md
+  d49d56df0aae5c57 5,9-10,13-14,16-17,19-20,23-26,29,31-32,37-39,42-46,49-50,54-75
+README.md
+  f2349838b31a908c 1,3,5-18,22,24-25,29-45,50-54,63-64,66,68-69,71-77,79,81,83,86-89,91,93,95-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "3a73294e96230e7b316fe9fd947d709b475be457",
+  "prompts": {
+    "d49d56df0aae5c57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3182ffaf8ffeKq81etu9i5hemb-8756fad7-dd03-4386-91d1-c51cda6a5f1b",
+        "model": "unknown"
+      },
+      "human_author": "shivam bansal <shivamban30@gmail.com>",
+      "messages": [],
+      "total_additions": 48,
+      "total_deletions": 92,
+      "accepted_lines": 48,
+      "overriden_lines": 0
+    },
+    "f2349838b31a908c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "opencode-transcript-ses_3182ffaf8ffeKq81etu9i5hemb-1750bd94-3302-49f8-a9f4-e5004052a12e",
+        "model": "unknown"
+      },
+      "human_author": "shivam bansal <shivamban30@gmail.com>",
+      "messages": [],
+      "total_additions": 67,
+      "total_deletions": 65,
+      "accepted_lines": 67,
+      "overriden_lines": 0
+    }
+  }
+}
